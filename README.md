@@ -6,6 +6,8 @@ A Kubernetes-native e-commerce and Model Context Protocol (MCP) control plane pa
 
 ## Live Prototype Tour
 
+> **Full Narrated Architecture & Demo Video (7m 28s, 1080p MP4):** [`docs/project-demo-walkthrough.mp4`](docs/project-demo-walkthrough.mp4) ([Download / Watch Raw MP4](https://github.com/harshgupta170704/MCP-Gateway-on-Kubernetes/raw/main/docs/project-demo-walkthrough.mp4))
+
 ### 1. Control Plane Authentication & Seeded Kubernetes Identities
 ![Gateway Login Console](docs/screenshots/01-login-console.png)
 
