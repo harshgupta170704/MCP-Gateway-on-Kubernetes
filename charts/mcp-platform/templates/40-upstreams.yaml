@@ -1,0 +1,159 @@
+{{- $secretName := include "mcp-platform.secretName" . -}}
+{{- if .Values.sampleMcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sample-mcp
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: sample-mcp
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sample-mcp
+spec:
+  replicas: {{ .Values.sampleMcp.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: sample-mcp
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: sample-mcp
+        mcp.platform/role: upstream-mcp
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: sample-mcp
+          image: "{{ .Values.sampleMcp.image.repository }}:{{ .Values.sampleMcp.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PORT
+              value: "3000"
+            - name: SERVER_MODE
+              value: "utility"
+            - name: SAMPLE_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: sample-mcp-token
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.sampleMcp.resources | nindent 12 }}
+{{- end }}
+---
+{{- if .Values.everythingMcp.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: everything-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: everything-mcp
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: everything-mcp
+  ports:
+    - name: http
+      port: 3001
+      targetPort: 3001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: everything-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: everything-mcp
+spec:
+  replicas: {{ .Values.everythingMcp.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: everything-mcp
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: everything-mcp
+        mcp.platform/role: upstream-mcp
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: everything-mcp
+          image: "{{ .Values.everythingMcp.image.repository }}:{{ .Values.everythingMcp.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PORT
+              value: "3001"
+            - name: SERVER_MODE
+              value: "everything"
+          ports:
+            - name: http
+              containerPort: 3001
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3001
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.everythingMcp.resources | nindent 12 }}
+{{- end }}
