@@ -14,6 +14,7 @@ data:
     #!/bin/sh
     set -eu
 
+    export WP_CLI_CACHE_DIR="/tmp/wp-cli-cache"
     WP_PATH="/var/www/html"
     echo "[wp-bootstrap] Waiting for WordPress files and wp-config.php in ${WP_PATH}..."
     while [ ! -f "${WP_PATH}/wp-config.php" ] || [ ! -f "${WP_PATH}/wp-includes/version.php" ]; do
@@ -43,7 +44,7 @@ data:
 
     if ! wp plugin is-active woocommerce --path="${WP_PATH}" >/dev/null 2>&1; then
       echo "[wp-bootstrap] Installing and activating WooCommerce..."
-      wp plugin install woocommerce --activate --path="${WP_PATH}"
+      wp plugin install woocommerce --version=9.3.3 --activate --path="${WP_PATH}"
     fi
 
     echo "[wp-bootstrap] Configuring pretty permalinks and .htaccess for REST API..."

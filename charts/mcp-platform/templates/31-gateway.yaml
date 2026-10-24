@@ -1,0 +1,146 @@
+{{- if .Values.gateway.enabled }}
+{{- $secretName := include "mcp-platform.secretName" . -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: gateway
+          image: "{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PORT
+              value: "4000"
+            - name: PGHOST
+              value: "postgres"
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: "gateway"
+            - name: PGUSER
+              value: "gateway"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: postgres-password
+            - name: GATEWAY_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: gateway-session-secret
+            - name: GATEWAY_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: gateway-encryption-key
+            - name: ADMIN_EMAIL
+              value: {{ .Values.gateway.adminEmail | quote }}
+            - name: ADMIN_NAME
+              value: {{ .Values.gateway.adminName | quote }}
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: gateway-admin-password
+            - name: MEMBER_EMAIL
+              value: {{ .Values.gateway.memberEmail | quote }}
+            - name: MEMBER_NAME
+              value: {{ .Values.gateway.memberName | quote }}
+            - name: MEMBER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: gateway-member-password
+            - name: WOO_MCP_URL
+              value: "http://woo-mcp:3000/mcp"
+            - name: WOO_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: woo-mcp-token
+            - name: SAMPLE_MCP_URL
+              value: "http://sample-mcp:3000/mcp"
+            - name: SAMPLE_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: sample-mcp-token
+            - name: EVERYTHING_MCP_URL
+              value: "http://everything-mcp:3001/mcp"
+            - name: UPSTREAM_TIMEOUT_MS
+              value: {{ .Values.gateway.upstreamTimeoutMs | quote }}
+            - name: HEALTH_CHECK_INTERVAL_MS
+              value: {{ .Values.gateway.healthCheckIntervalMs | quote }}
+            - name: ALLOWED_INTERNAL_SUFFIXES
+              value: {{ join "," .Values.gateway.allowedInternalSuffixes | quote }}
+            - name: LLM_BASE_URL
+              value: {{ .Values.gateway.llm.baseUrl | quote }}
+            - name: LLM_MODEL
+              value: {{ .Values.gateway.llm.model | quote }}
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: llm-api-key
+          ports:
+            - name: http
+              containerPort: 4000
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 4000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+{{- end }}
