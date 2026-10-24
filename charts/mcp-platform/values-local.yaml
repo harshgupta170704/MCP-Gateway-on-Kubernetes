@@ -11,10 +11,31 @@ ingress:
     enabled: false
 
 helloWorld:
-  enabled: true
+  enabled: false
 
 mariadb:
   enabled: true
 
 wordpress:
+  enabled: true
+
+wooMcp:
+  enabled: true
+
+postgres:
+  enabled: true
+
+gateway:
+  enabled: true
+
+everythingMcp:
+  enabled: true
+
+sampleMcp:
+  enabled: true
+
+dashboard:
+  enabled: true
+
+networkPolicy:
   enabled: true

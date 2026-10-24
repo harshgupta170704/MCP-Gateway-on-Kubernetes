@@ -1,0 +1,130 @@
+{{- if .Values.networkPolicy.enabled }}
+# 1. Default deny all ingress traffic within the namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# 2. Allow Ingress Controller (Traefik in kube-system) to reach public-facing workloads only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["wordpress", "dashboard", "gateway", "hello-world"]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+---
+# 3. Strictly isolate upstream MCP servers: ONLY the gateway pod can connect to them
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-only-gateway-to-upstreams
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      mcp.platform/role: upstream-mcp
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: gateway
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 3001
+---
+# 4. Allow woo-mcp to call WordPress REST API over internal ClusterIP
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-woo-mcp-to-wordpress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: wordpress
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: woo-mcp
+      ports:
+        - protocol: TCP
+          port: 80
+---
+# 5. Allow WordPress to reach MariaDB
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-wordpress-to-mariadb
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: mariadb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: wordpress
+      ports:
+        - protocol: TCP
+          port: 3306
+---
+# 6. Allow Gateway to reach Postgres
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-postgres
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: gateway
+      ports:
+        - protocol: TCP
+          port: 5432
+{{- end }}
