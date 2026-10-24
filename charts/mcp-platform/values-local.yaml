@@ -1,4 +1,3 @@
-# Local k3d cluster values (nip.io domains resolving to 127.0.0.1)
 global:
   storageClass: "local-path"
   imagePullPolicy: IfNotPresent
@@ -12,4 +11,10 @@ ingress:
     enabled: false
 
 helloWorld:
+  enabled: true
+
+mariadb:
+  enabled: true
+
+wordpress:
   enabled: true

@@ -1,0 +1,390 @@
+{{- if .Values.wordpress.enabled }}
+{{- $secretName := include "mcp-platform.secretName" . -}}
+{{- $storeUrl := include "mcp-platform.storeUrl" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wp-bootstrap-script
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+
+    WP_PATH="/var/www/html"
+    echo "[wp-bootstrap] Waiting for WordPress files and wp-config.php in ${WP_PATH}..."
+    while [ ! -f "${WP_PATH}/wp-config.php" ] || [ ! -f "${WP_PATH}/wp-includes/version.php" ]; do
+      sleep 2
+    done
+
+    echo "[wp-bootstrap] Waiting for MariaDB connection..."
+    until wp db check --path="${WP_PATH}" >/dev/null 2>&1; do
+      sleep 3
+    done
+
+    if ! wp core is-installed --path="${WP_PATH}" >/dev/null 2>&1; then
+      echo "[wp-bootstrap] Installing WordPress core at ${WP_SITE_URL}..."
+      wp core install \
+        --path="${WP_PATH}" \
+        --url="${WP_SITE_URL}" \
+        --title="${WP_STORE_TITLE}" \
+        --admin_user="${WP_ADMIN_USER}" \
+        --admin_password="${WP_ADMIN_PASSWORD}" \
+        --admin_email="${WP_ADMIN_EMAIL}" \
+        --skip-email
+    else
+      echo "[wp-bootstrap] WordPress core already installed; syncing siteurl/home..."
+      wp option update home "${WP_SITE_URL}" --path="${WP_PATH}"
+      wp option update siteurl "${WP_SITE_URL}" --path="${WP_PATH}"
+    fi
+
+    if ! wp plugin is-active woocommerce --path="${WP_PATH}" >/dev/null 2>&1; then
+      echo "[wp-bootstrap] Installing and activating WooCommerce..."
+      wp plugin install woocommerce --activate --path="${WP_PATH}"
+    fi
+
+    echo "[wp-bootstrap] Configuring pretty permalinks and .htaccess for REST API..."
+    wp option update permalink_structure '/%postname%/' --path="${WP_PATH}"
+    wp rewrite flush --hard --path="${WP_PATH}"
+
+    if [ ! -f "${WP_PATH}/.htaccess" ] || ! grep -q " WordPress" "${WP_PATH}/.htaccess"; then
+      cat <<'HTEOF' > "${WP_PATH}/.htaccess"
+    # BEGIN WordPress
+    <IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+    RewriteBase /
+    RewriteRule ^index\.php$ - [L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule . /index.php [L]
+    </IfModule>
+    # END WordPress
+    HTEOF
+    fi
+
+    echo "[wp-bootstrap] Configuring WooCommerce store settings and Cash on Delivery (COD)..."
+    wp option update woocommerce_currency "${WP_CURRENCY}" --path="${WP_PATH}"
+    wp option update woocommerce_store_address "100 Cloud Native Way" --path="${WP_PATH}"
+    wp option update woocommerce_store_city "San Francisco" --path="${WP_PATH}"
+    wp option update woocommerce_default_country "US:CA" --path="${WP_PATH}"
+    wp option update woocommerce_store_postcode "94105" --path="${WP_PATH}"
+    wp option update woocommerce_coming_soon "no" --path="${WP_PATH}"
+    wp option update woocommerce_onboarding_profile '{"completed":true,"skipped":true}' --format=json --path="${WP_PATH}"
+    wp option update woocommerce_cod_settings '{"enabled":"yes","title":"Cash on delivery","description":"Pay with cash upon delivery.","instructions":"Pay with cash upon delivery.","enable_for_methods":[],"enable_for_virtual":"yes"}' --format=json --path="${WP_PATH}"
+
+    wp wc tool run install_pages --user=1 --path="${WP_PATH}" >/dev/null 2>&1 || true
+
+    echo "[wp-bootstrap] Ensuring WooCommerce REST API key exists..."
+    wp eval '
+      global $wpdb;
+      $ck = getenv("WC_CONSUMER_KEY");
+      $cs = getenv("WC_CONSUMER_SECRET");
+      $hash = wc_api_hash($ck);
+      $trunc = substr($ck, -7);
+      $table = $wpdb->prefix . "woocommerce_api_keys";
+      $existing = $wpdb->get_var($wpdb->prepare("SELECT key_id FROM {$table} WHERE consumer_key = %s", $hash));
+      if ($existing) {
+        $wpdb->update(
+          $table,
+          array("consumer_secret" => $cs, "permissions" => "read_write", "truncated_key" => $trunc),
+          array("key_id" => $existing)
+        );
+        echo "Updated existing WooCommerce API key id=" . $existing . "\n";
+      } else {
+        $wpdb->insert(
+          $table,
+          array(
+            "user_id" => 1,
+            "description" => "woo-mcp internal gateway key",
+            "permissions" => "read_write",
+            "consumer_key" => $hash,
+            "consumer_secret" => $cs,
+            "truncated_key" => $trunc
+          ),
+          array("%d", "%s", "%s", "%s", "%s", "%s")
+        );
+        echo "Inserted new WooCommerce API key id=" . $wpdb->insert_id . "\n";
+      }
+    ' --path="${WP_PATH}"
+
+    echo "[wp-bootstrap] Seeding initial catalog if empty..."
+    wp eval '
+      $existing = wc_get_products(array("limit" => 1, "return" => "ids"));
+      if (empty($existing)) {
+        $items = array(
+          array("name" => "Mechanical Keyboard", "price" => "89.00", "desc" => "Hot-swappable tactile mechanical keyboard"),
+          array("name" => "USB-C Hub Pro", "price" => "45.00", "desc" => "7-in-1 4K HDMI and 100W PD USB-C hub"),
+          array("name" => "Wireless Ergonomic Mouse", "price" => "39.50", "desc" => "Low-latency dual-mode wireless mouse")
+        );
+        $first_id = null;
+        foreach ($items as $item) {
+          $p = new WC_Product_Simple();
+          $p->set_name($item["name"]);
+          $p->set_regular_price($item["price"]);
+          $p->set_description($item["desc"]);
+          $p->set_short_description($item["desc"]);
+          $p->set_status("publish");
+          $p->set_catalog_visibility("visible");
+          $id = $p->save();
+          if (!$first_id) { $first_id = $id; }
+        }
+        if ($first_id) {
+          $order = wc_create_order();
+          $order->add_product(wc_get_product($first_id), 1);
+          $order->set_address(array(
+            "first_name" => "Alex",
+            "last_name"  => "Rivera",
+            "email"      => "alex@example.com",
+            "phone"      => "555-0192",
+            "address_1"  => "742 Evergreen Terrace",
+            "city"       => "San Francisco",
+            "state"      => "CA",
+            "postcode"   => "94105",
+            "country"    => "US"
+          ), "billing");
+          $order->set_payment_method("cod");
+          $order->set_payment_method_title("Cash on delivery");
+          $order->calculate_totals();
+          $order->update_status("processing", "Seeded initial COD order");
+        }
+        echo "Seeded 3 products and 1 initial COD order.\n";
+      } else {
+        echo "Catalog already has products, skipping seed.\n";
+      }
+    ' --path="${WP_PATH}"
+
+    touch "${WP_PATH}/.bootstrap-complete"
+    echo "[wp-bootstrap] Bootstrap complete."
+    exec sleep infinity
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wordpress-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.wordpress.storage.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wordpress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: wordpress
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordpress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: wordpress
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: wordpress
+    spec:
+      securityContext:
+        fsGroup: 33
+      containers:
+        - name: wordpress
+          image: "{{ .Values.wordpress.image.repository }}:{{ .Values.wordpress.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: "mariadb:3306"
+            - name: WORDPRESS_DB_NAME
+              value: "wordpress"
+            - name: WORDPRESS_DB_USER
+              value: "wordpress"
+            - name: WORDPRESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: mariadb-password
+            - name: WP_SITE_URL
+              value: {{ $storeUrl | quote }}
+            # Honor X-Forwarded-Proto: https from Ingress and in-cluster woo-mcp so
+            # WooCommerce REST API v3 accepts Basic Auth over internal ClusterIP HTTP
+            # without canonical redirect loops.
+            - name: WORDPRESS_CONFIG_EXTRA
+              value: |
+                if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {
+                    $_SERVER['HTTPS'] = 'on';
+                }
+                if (getenv('WP_SITE_URL')) {
+                    define('WP_HOME', getenv('WP_SITE_URL'));
+                    define('WP_SITEURL', getenv('WP_SITE_URL'));
+                }
+                define('FS_METHOD', 'direct');
+          ports:
+            - name: http
+              containerPort: 80
+          startupProbe:
+            httpGet:
+              path: /wp-login.php
+              port: 80
+              httpHeaders:
+                - name: Host
+                  value: {{ .Values.ingress.storeHost | quote }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "test -f /var/www/html/.bootstrap-complete && curl -fsS -H 'Host: {{ .Values.ingress.storeHost }}' http://127.0.0.1/wp-login.php >/dev/null"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 4
+          livenessProbe:
+            httpGet:
+              path: /wp-login.php
+              port: 80
+              httpHeaders:
+                - name: Host
+                  value: {{ .Values.ingress.storeHost | quote }}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.wordpress.resources | nindent 12 }}
+          volumeMounts:
+            - name: wp-data
+              mountPath: /var/www/html
+        - name: wp-bootstrap
+          image: "{{ .Values.wordpress.cliImage.repository }}:{{ .Values.wordpress.cliImage.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 33
+            allowPrivilegeEscalation: false
+          command: ["/bin/sh", "/scripts/bootstrap.sh"]
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: "mariadb:3306"
+            - name: WORDPRESS_DB_NAME
+              value: "wordpress"
+            - name: WORDPRESS_DB_USER
+              value: "wordpress"
+            - name: WORDPRESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: mariadb-password
+            - name: WP_SITE_URL
+              value: {{ $storeUrl | quote }}
+            - name: WP_STORE_TITLE
+              value: {{ .Values.wordpress.storeTitle | quote }}
+            - name: WP_CURRENCY
+              value: {{ .Values.wordpress.currency | quote }}
+            - name: WP_ADMIN_USER
+              value: {{ .Values.wordpress.adminUser | quote }}
+            - name: WP_ADMIN_EMAIL
+              value: {{ .Values.wordpress.adminEmail | quote }}
+            - name: WP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: wp-admin-password
+            - name: WC_CONSUMER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: wc-consumer-key
+            - name: WC_CONSUMER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: wc-consumer-secret
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          volumeMounts:
+            - name: wp-data
+              mountPath: /var/www/html
+            - name: bootstrap-script
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: wp-data
+          persistentVolumeClaim:
+            claimName: wordpress-data
+        - name: bootstrap-script
+          configMap:
+            name: wp-bootstrap-script
+            defaultMode: 0755
+---
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: store-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.storeHost | quote }}
+      secretName: {{ .Values.ingress.tls.storeSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.storeHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wordpress
+                port:
+                  number: 80
+{{- end }}
+{{- end }}
