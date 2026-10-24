@@ -1,0 +1,13 @@
+apiVersion: v2
+name: mcp-platform
+description: Umbrella Helm chart for WooCommerce Storefront + Team MCP Gateway Platform on Kubernetes
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - mcp
+  - woocommerce
+  - kubernetes
+  - gateway
+maintainers:
+  - name: Platform Engineering

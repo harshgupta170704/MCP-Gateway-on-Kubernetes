@@ -1,0 +1,15 @@
+# Local k3d cluster values (nip.io domains resolving to 127.0.0.1)
+global:
+  storageClass: "local-path"
+  imagePullPolicy: IfNotPresent
+
+ingress:
+  enabled: true
+  className: "traefik"
+  storeHost: "store.127.0.0.1.nip.io"
+  appHost: "app.127.0.0.1.nip.io"
+  tls:
+    enabled: false
+
+helloWorld:
+  enabled: true

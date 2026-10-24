@@ -1,0 +1,73 @@
+# Production k3s VPS values (real DNS + TLS via cert-manager + GHCR images)
+global:
+  storageClass: "local-path"
+  imagePullPolicy: Always
+
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  storeHost: "store.example.com"
+  appHost: "app.example.com"
+  tls:
+    enabled: true
+    storeSecretName: "store-tls-cert"
+    appSecretName: "app-tls-cert"
+
+helloWorld:
+  enabled: false
+
+mariadb:
+  enabled: true
+  storage:
+    size: 10Gi
+
+wordpress:
+  enabled: true
+  storage:
+    size: 10Gi
+
+wooMcp:
+  enabled: true
+  image:
+    repository: ghcr.io/your-org/woo-mcp
+    tag: "v1.0.0"
+
+postgres:
+  enabled: true
+  storage:
+    size: 10Gi
+
+gateway:
+  enabled: true
+  replicas: 2
+  image:
+    repository: ghcr.io/your-org/gateway
+    tag: "v1.0.0"
+
+everythingMcp:
+  enabled: true
+  image:
+    repository: ghcr.io/your-org/everything-mcp
+    tag: "v1.0.0"
+
+sampleMcp:
+  enabled: true
+  image:
+    repository: ghcr.io/your-org/sample-mcp
+    tag: "v1.0.0"
+
+dashboard:
+  enabled: true
+  replicas: 2
+  image:
+    repository: ghcr.io/your-org/dashboard
+    tag: "v1.0.0"
+
+networkPolicy:
+  enabled: true
+
+# In production, pre-create a Secret via SealedSecrets/ExternalSecrets or kubectl
+secrets:
+  existingSecret: "mcp-platform-secrets"

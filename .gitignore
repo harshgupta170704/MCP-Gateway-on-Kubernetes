@@ -1,0 +1,28 @@
+# Secrets & Environment (NEVER commit secrets)
+.env
+.env.*
+!.env.example
+values-secrets.yaml
+charts/**/values-secrets.yaml
+*.pem
+*.key
+*.crt
+kubeconfig.yaml
+
+# Node / TypeScript
+node_modules/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Helm / K8s temporary artifacts
+charts/**/*.tgz
+tmp/
