@@ -1,0 +1,96 @@
+{{- if .Values.wooMcp.enabled }}
+{{- $secretName := include "mcp-platform.secretName" . -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: woo-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: woo-mcp
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: woo-mcp
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: woo-mcp
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mcp-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: woo-mcp
+spec:
+  replicas: {{ .Values.wooMcp.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: woo-mcp
+  template:
+    metadata:
+      labels:
+        {{- include "mcp-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: woo-mcp
+        mcp.platform/role: upstream-mcp
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: woo-mcp
+          image: "{{ .Values.wooMcp.image.repository }}:{{ .Values.wooMcp.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PORT
+              value: "3000"
+            - name: WP_INTERNAL_URL
+              value: "http://wordpress"
+            - name: STORE_HOST
+              value: {{ .Values.ingress.storeHost | quote }}
+            - name: WC_TIMEOUT_MS
+              value: {{ .Values.wooMcp.timeoutMs | quote }}
+            - name: WC_CONSUMER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: wc-consumer-key
+            - name: WC_CONSUMER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: wc-consumer-secret
+            - name: WOO_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: woo-mcp-token
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.wooMcp.resources | nindent 12 }}
+{{- end }}
